@@ -1,6 +1,6 @@
 ---
 name: receipt-invoice-checker
-description: Retrieve Gmail receipt/invoice attachments for a selected date and perform direct reasoning-based reconciliation. Use when the user asks to check daily Gmail emails with Excel, PDF, and image attachments; download attachments to a temporary workspace; compare receipts against invoice spreadsheets manually with model reasoning; and output concise review results without generating annotation, HTML dashboard, or Excel review files.
+description: Retrieve Gmail receipt/invoice attachments for a selected date and perform direct reasoning-based reconciliation. Use when the user asks to check daily Gmail emails with Excel, PDF, and image attachments; download attachments to a temporary workspace; compare receipts against invoice spreadsheets manually with model reasoning; and output one section per case with attached file links/images, a four-column comparison table, and a short explanation without generating annotation, HTML dashboard, or Excel review files.
 ---
 
 # Receipt Invoice Checker
@@ -16,7 +16,7 @@ Default to **reasoning review mode**, not automated rule-report mode:
 3. Group attachments by sender, subject, Tour Ref, and filename date token such as `0607`.
 4. Directly inspect the Excel/PDF/image contents.
 5. Reconcile amounts using human-style reasoning.
-6. Output only a clean final review summary and issue list.
+6. Output one clean chat section per case, with the case's attachments, a four-column comparison table, and a short explanation.
 7. Do not generate annotation images, HTML dashboards, Excel review files, markdown review files, or CSV review files.
 8. Delete or ignore the temporary workspace after the final answer unless the user asks to keep it.
 
@@ -98,7 +98,7 @@ For each case:
 
 Return a concise Chinese answer unless the user asks for English. Keep the internal template ASCII-safe.
 
-Use this shape:
+Use this shape. Separate cases clearly in the conversation so each case can be checked independently.
 
 ```text
 Overview:
@@ -107,21 +107,44 @@ Overview:
 - Needs confirmation:
 - Mismatch:
 
-Case: [case name]
-Status: [Matched / Mostly matched / Needs confirmation / Mismatch]
+## Case [number]: [case name]
+Status: [Matched / Mostly matched / Needs confirmation / Mismatch / Incomplete]
 
-Matched:
-- Item: Excel JPY x; receipt evidence JPY x; explanation.
+Attachments for manual check:
+- Excel/PDF: [filename](absolute local path)
+- Image: [filename](absolute local path)
 
-Needs confirmation:
-- Item: Excel JPY x; issue.
+![filename](absolute local image path)
 
-Calculation:
-- Total invoice: Excel JPY x; recalculated JPY x; correct/incorrect.
+| Item | Amount shown in photos | Amount in Excel | Result |
+|---|---:|---:|---|
+| Nezu Museum | JPY 6,000 | JPY 6,000 | Matched |
+| Entrance fees subtotal | JPY 6,000 + JPY 2,250 = JPY 8,250 | JPY 8,250 | Matched |
+| Guide transportation: Yokosuka-Shimbashi | No matching receipt was found in the photos; Excel note says JPY 2,276, but the amount entered is JPY 1,500 | JPY 1,500 | Needs confirmation |
+| Total amount | Based on Excel calculation: JPY 30,000 + JPY 8,250 + JPY 5,520 + JPY 5,450 | JPY 49,220 | Calculation is correct |
+
+Short explanation:
+[2-4 Chinese sentences explaining the main matched evidence, missing evidence, calculation result, and any description conflict.]
 
 Suggested reply:
 [short English follow-up if needed]
 ```
+
+Table requirements:
+
+- Always use exactly these four columns: `Item`, `Amount shown in photos`, `Amount in Excel`, `Result`.
+- Include every meaningful Excel line item and subtotal in the table, even if no receipt is found.
+- Use `Matched`, `Needs confirmation`, `Mismatch`, `Calculation is correct`, or `Calculation mismatch` in the `Result` column.
+- Put combination evidence directly in `Amount shown in photos`, for example `JPY 1,000 + JPY 1,000 = JPY 2,000`.
+- If the receipt is missing, write a short reason in `Amount shown in photos`, not only `N/A`.
+- Keep table wording in English. Write the short explanation in Chinese unless the user asks for English.
+
+Attachment display requirements:
+
+- At the start of each case section, list the exact local paths of that case's Excel/PDF/image attachments as clickable Markdown links.
+- For local images, also embed them with Markdown image syntax using absolute paths when there are only a few images and the chat will remain readable.
+- If a case has many images, embed the most relevant receipt images and link the rest.
+- Do not mix attachments from different cases. The attachments shown in a case section must come from that case's folder only.
 
 Prefer practical conclusions over raw OCR dumps. Do not show long extracted text unless the user asks.
 

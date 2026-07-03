@@ -67,12 +67,33 @@ Use simple human labels:
 
 ## Output Focus
 
-Final output should be concise:
+Final output should be concise and divided by case. Each case section must include the case's own attachments, a four-column comparison table, and a short explanation.
 
-- Matched items
-- Needs confirmation
-- Mismatches
-- Recalculated total
-- Suggested English reply when useful
+Use exactly this table structure for every case:
+
+| Item | Amount shown in photos | Amount in Excel | Result |
+|---|---:|---:|---|
+
+Rules for the table:
+
+- Include every meaningful Excel line item, subtotal, and final total.
+- Put receipt combination evidence directly in the photo amount column.
+- If evidence is missing or unclear, explain the issue in the photo amount column.
+- Use clear result labels: `Matched`, `Needs confirmation`, `Mismatch`, `Calculation is correct`, or `Calculation mismatch`.
+- Keep table text in English so it can be copied into replies or audit notes.
+
+Before each table, list the exact case attachments:
+
+- Link Excel and PDF files with clickable local Markdown links.
+- Embed the most relevant local receipt images using Markdown image syntax with absolute paths.
+- If there are many images, embed only the key images and link the rest.
+- Never mix attachments from different case folders.
+
+After each table, write a short Chinese explanation:
+
+- Main matched evidence
+- Missing or unclear receipt evidence
+- Total calculation result
+- Any description conflict
 
 Avoid raw OCR dumps unless the user asks for technical debugging.

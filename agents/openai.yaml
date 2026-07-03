@@ -1,4 +1,4 @@
 interface:
   display_name: "Receipt Invoice Checker"
-  short_description: "Downloads Gmail receipt cases for direct invoice review."
-  default_prompt: "Use $receipt-invoice-checker to download Gmail receipt and invoice attachments for a selected date, then review them directly."
+  short_description: "Downloads Gmail receipt cases and reports each case in a comparison table."
+  default_prompt: "Use $receipt-invoice-checker to download Gmail receipt and invoice attachments for a selected date, then review each case with attachment links, images, a four-column table, and a short explanation."
