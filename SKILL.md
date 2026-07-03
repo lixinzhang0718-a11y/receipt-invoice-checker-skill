@@ -96,6 +96,13 @@ Default expense categories:
 - `lunch`: cafe, restaurant, lunch budget, food and drink.
 - `invoice_total`: final total invoice amount.
 
+For receipt photos, do not treat every OCR number as a receipt amount. Use total-focused matching:
+
+- Ignore obvious phone numbers, ticket numbers, registration numbers, years, terminal IDs, and long identifiers.
+- Prefer amounts with currency signs, commas, or total-like receipt context.
+- If a Japanese receipt shows subtotal and 10 percent tax separately, derive the tax-included total. Example: `JPY 3,380 + tax JPY 338 = JPY 3,718`.
+- Show and match only amounts that connect to an invoice line or a derived receipt total. Keep raw OCR text in `extracted_data.json` for audit, but do not clutter the review page with irrelevant numbers.
+
 Status meanings:
 
 - `Passed`: invoice calculation is correct and all receipt-required items are matched.

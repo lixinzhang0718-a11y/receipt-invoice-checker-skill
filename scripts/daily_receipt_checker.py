@@ -483,6 +483,89 @@ def extract_amounts(text: str) -> List[int]:
     return amounts
 
 
+def extract_receipt_evidence_amounts(text: str, source: str) -> List[EvidenceAmount]:
+    """Extract conservative receipt evidence amounts for matching.
+
+    OCR sees many non-money numbers on Japanese receipts: phone numbers,
+    registration numbers, ticket numbers, dates, and terminal IDs. For receipt
+    matching, prefer money-looking values and derived tax-included totals.
+    """
+    candidates: List[Tuple[int, str, int]] = []
+    seen = set()
+    money_re = re.compile(
+        r"(?P<prefix>JPY|YEN|yen|¥|￥|\\)?\s*"
+        r"(?P<num>[0-9]{1,3}(?:,[0-9]{3})+|[1-9][0-9]{2,5})\s*"
+        r"(?P<suffix>JPY|YEN|yen|円)?",
+        re.I,
+    )
+    for match in money_re.finditer(text or ""):
+        token = match.group("num")
+        amount = int(token.replace(",", ""))
+        has_money_signal = bool(match.group("prefix") or match.group("suffix") or "," in token)
+        if not has_money_signal:
+            continue
+        strong_money_signal = "," in token or match.group("prefix") in {"\\", "¥", "￥"} or bool(match.group("suffix"))
+        if not strong_money_signal and is_bad_receipt_number(text, match.start("num"), match.end("num"), amount):
+            continue
+        context = context_for_span(text, match.start("num"), match.end("num"))
+        key = (amount, context)
+        if key not in seen:
+            candidates.append((amount, context, 80 if "," in token else 65))
+            seen.add(key)
+
+    derived = derive_tax_included_totals(candidates)
+    for amount, context, score in derived:
+        key = (amount, context)
+        if key not in seen:
+            candidates.append((amount, context, score))
+            seen.add(key)
+
+    candidates.sort(key=lambda x: (-x[2], -x[0], x[1]))
+    return [EvidenceAmount(amount, source, context) for amount, context, _score in candidates]
+
+
+def is_bad_receipt_number(text: str, start: int, end: int, amount: int) -> bool:
+    if amount < 100 or amount > 999999:
+        return True
+    if 1900 <= amount <= 2099:
+        return True
+    before = text[max(0, start - 1):start]
+    after = text[end:end + 1]
+    if before == "-" or after == "-":
+        return True
+    context = context_for_span(text, start, end).lower()
+    if re.search(r"\d{2,4}[- ]\d{2,4}[- ]\d{2,4}", context):
+        return True
+    bad_words = [
+        "tel", "phone", "no.", "no ", "number", "id", "terminal", "register",
+        "伝票", "番号", "登録", "取引", "端末", "電話",
+    ]
+    if any(word in context for word in bad_words) and amount >= 1000:
+        return True
+    return False
+
+
+def context_for_span(text: str, start: int, end: int) -> str:
+    left = max(0, start - 55)
+    right = min(len(text), end + 85)
+    return re.sub(r"\s+", " ", text[left:right]).strip()
+
+
+def derive_tax_included_totals(candidates: List[Tuple[int, str, int]]) -> List[Tuple[int, str, int]]:
+    amounts = [amount for amount, _context, _score in candidates]
+    results: List[Tuple[int, str, int]] = []
+    for base in amounts:
+        for tax in amounts:
+            if base <= tax:
+                continue
+            # Japanese receipts often show subtotal and 10% tax separately.
+            if abs(tax - round(base * 0.10)) <= 3:
+                total = base + tax
+                if 100 <= total <= 999999:
+                    results.append((total, f"Derived receipt total: JPY {base:,} + tax JPY {tax:,} = JPY {total:,}", 95))
+    return results
+
+
 def context_for_amount(text: str, amount: int) -> str:
     plain = str(amount)
     comma = f"{amount:,}"
@@ -517,7 +600,7 @@ def ocr_image(path: Path, annotated_dir: Path, languages: str, issue_banner: str
     except Exception:
         text = pytesseract.image_to_string(ocr_image_obj)
 
-    amounts = [EvidenceAmount(a, str(path), context_for_amount(text, a)) for a in extract_amounts(text)]
+    amounts = extract_receipt_evidence_amounts(text, str(path))
 
     annotated = ocr_image_obj.copy()
     draw = ImageDraw.Draw(annotated)
@@ -526,8 +609,18 @@ def ocr_image(path: Path, annotated_dir: Path, languages: str, issue_banner: str
     except Exception:
         data = pytesseract.image_to_data(ocr_image_obj, output_type=pytesseract.Output.DICT)
 
+    highlight_amounts = set()
+    for ev in amounts:
+        highlight_amounts.add(ev.amount)
+        for derived_part in re.findall(r"JPY ([0-9,]+)", ev.context):
+            try:
+                highlight_amounts.add(int(derived_part.replace(",", "")))
+            except ValueError:
+                pass
+
     for i, word in enumerate(data.get("text", [])):
-        if extract_amounts(word):
+        word_amounts = set(extract_amounts(word))
+        if word_amounts and word_amounts.intersection(highlight_amounts):
             x, y, w, h = data["left"][i], data["top"][i], data["width"][i], data["height"][i]
             draw.rectangle([x, y, x + w, y + h], outline=(230, 0, 0), width=4)
     if issue_banner:
@@ -550,7 +643,7 @@ def extract_pdf(path: Path) -> Tuple[str, List[EvidenceAmount], Optional[str]]:
         for page in doc:
             text_parts.append(page.get_text())
     text = "\n".join(text_parts)
-    amounts = [EvidenceAmount(a, str(path), context_for_amount(text, a)) for a in extract_amounts(text)]
+    amounts = extract_receipt_evidence_amounts(text, str(path))
     return text, amounts, None
 
 
@@ -654,6 +747,27 @@ def reconcile(items: List[InvoiceItem], evidence: List[EvidenceAmount], extracti
         raise_status("Needs review")
 
     return worst, rows
+
+
+def filter_evidence_for_invoice(evidence: List[EvidenceAmount], items: List[InvoiceItem]) -> List[EvidenceAmount]:
+    if not items:
+        return evidence
+    target_amounts = {
+        item.amount
+        for item in items
+        if item.category not in {"guide_fee", "invoice_total"}
+    }
+    filtered: List[EvidenceAmount] = []
+    seen = set()
+    for ev in evidence:
+        keep = ev.amount in target_amounts or ev.context.startswith("Derived receipt total:")
+        if not keep:
+            continue
+        key = (ev.amount, ev.source, ev.context)
+        if key not in seen:
+            filtered.append(ev)
+            seen.add(key)
+    return filtered or evidence
 
 
 def write_case_outputs(case_dir: Path, rows: List[CheckRow], status: str, extracted: Dict[str, Any]) -> None:
@@ -925,6 +1039,7 @@ def process_case(case_dir: Path, config: Dict[str, Any]) -> Dict[str, Any]:
         ocr_texts[image.name] = text
         evidence.extend(amounts)
 
+    evidence = filter_evidence_for_invoice(evidence, items)
     status, rows = reconcile(items, evidence, warnings)
     create_checked_workbook(case_dir, invoice_files, rows)
     extracted = {

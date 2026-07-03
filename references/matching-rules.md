@@ -31,6 +31,16 @@ guide fee + entrance total + transportation total + lunch total = invoice total
 
 If this calculation fails, mark `Mismatch`.
 
+## Receipt OCR Amount Logic
+
+Use conservative evidence amounts for receipt images and PDFs:
+
+- Do not use every OCR number as evidence. Japanese receipts contain phone numbers, registration numbers, ticket numbers, dates, and terminal IDs.
+- Keep money-looking amounts first: currency sign, yen symbol, comma-formatted number, or total context.
+- Exclude clear identifiers such as years, phone-number fragments, and long ID-like numbers.
+- For Japanese receipts with subtotal and 10 percent tax, create a derived total when the tax is about 10 percent of the subtotal. For example, `3,380 + 338 = 3,718`.
+- After extracting receipt evidence, filter displayed evidence to amounts that can match Excel invoice lines or derived receipt totals. Raw OCR text can remain in `extracted_data.json`.
+
 ## Receipt-Required Items
 
 Usually require receipt evidence:
