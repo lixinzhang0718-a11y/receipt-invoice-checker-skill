@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Local Gmail/OAuth secrets and runtime data
+gmail_credentials.json
+gmail_token.json
+config.json
+*.log
+
+# Generated review output should stay outside the skill repo
+Receipt_Check/

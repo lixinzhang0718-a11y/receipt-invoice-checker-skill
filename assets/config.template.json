@@ -1,0 +1,9 @@
+{
+  "output_root": "C:\\Users\\Administrator\\Desktop\\Receipt_Check",
+  "gmail_credentials": "C:\\Users\\Administrator\\.codex\\receipt-invoice-checker\\gmail_credentials.json",
+  "gmail_token": "C:\\Users\\Administrator\\.codex\\receipt-invoice-checker\\gmail_token.json",
+  "ocr_languages": "jpn+eng",
+  "gmail_extra_query": "",
+  "known_sender_query": "",
+  "manual_send_only": true
+}

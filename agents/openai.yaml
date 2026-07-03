@@ -1,0 +1,4 @@
+interface:
+  display_name: "Receipt Invoice Checker"
+  short_description: "Checks Gmail receipt attachments against invoice spreadsheets."
+  default_prompt: "Use $receipt-invoice-checker to check Gmail receipt and invoice attachments for a selected date."
