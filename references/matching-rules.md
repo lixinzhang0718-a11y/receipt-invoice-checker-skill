@@ -82,3 +82,19 @@ Mismatch > Incomplete > Needs review > Mostly matched > Passed
 ```
 
 Use `Mostly matched` only when the math is correct and all receipt-required line items are matched, but a fixed fee or minor note still deserves human awareness.
+
+## Line Check Display
+
+The human-facing case review must include every invoice item extracted from Excel/PDF:
+
+- Detail lines such as entrance, transportation, lunch and bottled water.
+- Category totals such as total entrance fees, total transportation and total lunch.
+- Final invoice total.
+- Fixed guide fee.
+
+Use row-level wording that is easy to scan:
+
+- `matched` for receipt-supported amounts.
+- `not matched` for missing or conflicting receipt evidence.
+- `fixed fee` for accepted guide/FD/HD fees.
+- `calculation matched` or `calculation mismatch` for the invoice total calculation.

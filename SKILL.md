@@ -127,6 +127,14 @@ Make `00_OPEN_DAILY_DASHBOARD.html` the main daily entry point. It must summariz
 
 Make `00_OPEN_CASE_REVIEW.html` the main case entry point. It must show the case status, main issue, line-check table, annotated evidence images, and original attachment links.
 
+The case line-check table must include every invoice item extracted from the Excel/PDF invoice, including detail lines and totals. Display clear row-level results:
+
+- `matched`: the invoice amount is supported by receipt evidence.
+- `not matched`: the invoice amount has no matching receipt evidence or has a conflicting description amount.
+- `fixed fee`: guide/FD/HD fee treated as fixed fee unless policy requires receipt.
+- `calculation matched`: invoice total matches the recalculated category totals.
+- `calculation mismatch`: invoice total does not match recalculated category totals.
+
 Make Excel outputs usable for daily work:
 
 - `00_DAILY_SUMMARY.xlsx`: colored daily dashboard with filter, frozen header, priority column, main issue, and hyperlinks to case review pages.

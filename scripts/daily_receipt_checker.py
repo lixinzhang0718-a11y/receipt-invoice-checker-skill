@@ -683,11 +683,22 @@ def reconcile(items: List[InvoiceItem], evidence: List[EvidenceAmount], extracti
 
     rows: List[CheckRow] = []
     worst = "Passed"
-    order = {"Passed": 0, "Mostly matched": 1, "Needs review": 2, "Incomplete": 3, "Mismatch": 4}
+    order = {
+        "matched": 0,
+        "fixed fee": 1,
+        "calculation matched": 1,
+        "Passed": 0,
+        "Mostly matched": 1,
+        "Needs review": 2,
+        "not matched": 2,
+        "Incomplete": 3,
+        "Mismatch": 4,
+        "calculation mismatch": 4,
+    }
 
     def raise_status(status: str) -> None:
         nonlocal worst
-        if order[status] > order[worst]:
+        if order.get(status, 2) > order.get(worst, 2):
             worst = status
 
     if extraction_warnings:
@@ -698,35 +709,7 @@ def reconcile(items: List[InvoiceItem], evidence: List[EvidenceAmount], extracti
         rows.append(CheckRow("Invoice", "", "", "Incomplete", "No invoice spreadsheet/PDF data was extracted."))
         raise_status("Incomplete")
 
-    receipt_required = {"entrance", "transportation", "lunch"}
-    for item in items:
-        if item.category in {"invoice_total", "entrance_total", "transportation_total", "lunch_total"}:
-            continue
-        label_amounts = [a for a in extract_amounts(item.label) if a != item.amount]
-        if label_amounts:
-            rows.append(
-                CheckRow(
-                    item.label,
-                    f"JPY {item.amount:,}",
-                    ", ".join(f"JPY {a:,}" for a in label_amounts),
-                    "Needs review",
-                    "The description contains a different amount from the entered invoice amount.",
-                )
-            )
-            raise_status("Needs review")
-            continue
-        if item.category == "guide_fee":
-            rows.append(CheckRow(item.label, f"JPY {item.amount:,}", "Fixed fee", "Mostly matched", "Guide/FD/HD fee is treated as fixed unless policy requires receipt."))
-            raise_status("Mostly matched")
-            continue
-        matches = evidence_by_amount.get(item.amount, [])
-        if matches:
-            source = Path(matches[0].source).name
-            rows.append(CheckRow(item.label, f"JPY {item.amount:,}", source, "Passed", matches[0].context))
-        elif item.category in receipt_required:
-            rows.append(CheckRow(item.label, f"JPY {item.amount:,}", "", "Needs review", "No matching receipt amount was found."))
-            raise_status("Needs review")
-
+    receipt_required = {"entrance", "transportation", "lunch", "entrance_total", "transportation_total", "lunch_total"}
     totals = {item.category: item.amount for item in items if item.category.endswith("_total") or item.category == "guide_fee"}
     invoice_total = totals.get("invoice_total")
     parts = [
@@ -735,16 +718,46 @@ def reconcile(items: List[InvoiceItem], evidence: List[EvidenceAmount], extracti
         totals.get("transportation_total"),
         totals.get("lunch_total"),
     ]
-    if invoice_total and all(x is not None for x in parts):
-        computed = sum(x for x in parts if x is not None)
-        if computed == invoice_total:
-            rows.append(CheckRow("Invoice total calculation", f"JPY {invoice_total:,}", f"JPY {computed:,}", "Passed", "Category totals add up to invoice total."))
+    computed_invoice_total = sum(x for x in parts if x is not None) if all(x is not None for x in parts) else None
+
+    for item in items:
+        label_amounts = [a for a in extract_amounts(item.label) if a != item.amount]
+        if label_amounts:
+            rows.append(
+                CheckRow(
+                    item.label,
+                    f"JPY {item.amount:,}",
+                    ", ".join(f"JPY {a:,}" for a in label_amounts),
+                    "not matched",
+                    "The description contains a different amount from the entered invoice amount.",
+                )
+            )
+            raise_status("not matched")
+            continue
+        if item.category == "guide_fee":
+            rows.append(CheckRow(item.label, f"JPY {item.amount:,}", "Fixed fee", "fixed fee", "Guide/FD/HD fee is treated as fixed unless policy requires receipt."))
+            raise_status("Mostly matched")
+            continue
+        if item.category == "invoice_total":
+            if computed_invoice_total is None:
+                rows.append(CheckRow(item.label, f"JPY {item.amount:,}", "", "not matched", "Not all category totals were extracted for invoice total recalculation."))
+                raise_status("not matched")
+            elif computed_invoice_total == item.amount:
+                rows.append(CheckRow(item.label, f"JPY {item.amount:,}", f"JPY {computed_invoice_total:,}", "calculation matched", "Excel category totals add up to invoice total."))
+            else:
+                rows.append(CheckRow(item.label, f"JPY {item.amount:,}", f"JPY {computed_invoice_total:,}", "calculation mismatch", "Excel category totals do not add up to invoice total."))
+                raise_status("calculation mismatch")
+            continue
+        matches = evidence_by_amount.get(item.amount, [])
+        if matches:
+            source = Path(matches[0].source).name
+            rows.append(CheckRow(item.label, f"JPY {item.amount:,}", source, "matched", matches[0].context))
+        elif item.category in receipt_required:
+            rows.append(CheckRow(item.label, f"JPY {item.amount:,}", "", "not matched", "No matching receipt amount was found."))
+            raise_status("not matched")
         else:
-            rows.append(CheckRow("Invoice total calculation", f"JPY {invoice_total:,}", f"JPY {computed:,}", "Mismatch", "Category totals do not add up to invoice total."))
-            raise_status("Mismatch")
-    elif invoice_total:
-        rows.append(CheckRow("Invoice total calculation", f"JPY {invoice_total:,}", "", "Needs review", "Not all category totals were extracted for recalculation."))
-        raise_status("Needs review")
+            rows.append(CheckRow(item.label, f"JPY {item.amount:,}", "", "not matched", "No matching receipt amount was found."))
+            raise_status("not matched")
 
     return worst, rows
 
@@ -809,6 +822,11 @@ def rel_link(from_dir: Path, target: Path) -> str:
 
 def status_class(status: str) -> str:
     return {
+        "matched": "matched",
+        "not matched": "notmatched",
+        "fixed fee": "fixed",
+        "calculation matched": "matched",
+        "calculation mismatch": "mismatch",
         "Passed": "passed",
         "Mostly matched": "mostly",
         "Needs review": "review",
@@ -818,7 +836,7 @@ def status_class(status: str) -> str:
 
 
 def main_issue(rows: List[CheckRow]) -> str:
-    for severity in ["Mismatch", "Incomplete", "Needs review"]:
+    for severity in ["calculation mismatch", "Mismatch", "Incomplete", "not matched", "Needs review"]:
         for row in rows:
             if row.result == severity:
                 return row.note or row.item
@@ -827,6 +845,11 @@ def main_issue(rows: List[CheckRow]) -> str:
 
 def status_fill(status: str) -> str:
     return {
+        "matched": "C6EFCE",
+        "not matched": "F4CCCC",
+        "fixed fee": "D9EAD3",
+        "calculation matched": "C6EFCE",
+        "calculation mismatch": "F4CCCC",
         "Passed": "C6EFCE",
         "Mostly matched": "D9EAD3",
         "Needs review": "FFF2CC",
@@ -869,7 +892,7 @@ def create_case_review_html(case_dir: Path, rows: List[CheckRow], status: str, e
     html_rows = []
     for row in rows:
         html_rows.append(
-            "<tr>"
+            f'<tr class="{status_class(row.result)}">'
             f"<td>{h(row.result)}</td>"
             f"<td>{h(row.item)}</td>"
             f"<td>{h(row.invoice_amount)}</td>"
@@ -897,6 +920,7 @@ def create_case_review_html(case_dir: Path, rows: List[CheckRow], status: str, e
 <style>
 body {{ font-family: Segoe UI, Arial, sans-serif; margin: 24px; color: #1f2933; }}
 .status {{ display:inline-block; padding:8px 12px; border-radius:6px; font-weight:700; }}
+.matched {{ background:#c6efce; }} .notmatched {{ background:#f4cccc; }} .fixed {{ background:#d9ead3; }}
 .passed {{ background:#c6efce; }} .mostly {{ background:#d9ead3; }}
 .review {{ background:#fff2cc; }} .incomplete {{ background:#d9d9d9; }} .mismatch {{ background:#f4cccc; }}
 .issue {{ margin:16px 0; padding:12px 14px; background:#fff7ed; border-left:5px solid #f97316; }}
