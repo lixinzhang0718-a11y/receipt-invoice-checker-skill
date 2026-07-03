@@ -33,6 +33,7 @@ IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".tif", ".tiff", ".bmp"}
 EXCEL_EXTS = {".xlsx", ".xlsm"}
 PDF_EXTS = {".pdf"}
 SUPPORTED_EXTS = IMAGE_EXTS | EXCEL_EXTS | PDF_EXTS
+GENERATED_PREFIXES = ("daily_review_summary", "case_result", "extracted_data", "email_info")
 
 TKE_RE = re.compile(r"\bTKE[\s_-]*(\d{4,})\b", re.I)
 AMOUNT_RE = re.compile(
@@ -491,17 +492,24 @@ def extract_pdf(path: Path) -> Tuple[str, List[EvidenceAmount], Optional[str]]:
 
 
 def find_case_dirs(day_folder: Path) -> List[Path]:
+    def supported_input_file(path: Path) -> bool:
+        if not path.is_file() or path.suffix.lower() not in SUPPORTED_EXTS:
+            return False
+        return not path.stem.lower().startswith(GENERATED_PREFIXES)
+
     case_dirs: List[Path] = []
     for original in day_folder.rglob("original"):
-        if original.is_dir():
+        if original.is_dir() and any(supported_input_file(p) for p in original.iterdir()):
             case_dirs.append(original.parent)
     if not case_dirs:
         # Treat the folder itself as one manually downloaded case.
+        direct_files = [p for p in day_folder.iterdir() if supported_input_file(p)]
+        if not direct_files:
+            return []
         original = day_folder / "original"
         original.mkdir(exist_ok=True)
-        for file in day_folder.iterdir():
-            if file.is_file() and file.suffix.lower() in SUPPORTED_EXTS:
-                shutil.move(str(file), str(original / file.name))
+        for file in direct_files:
+            shutil.move(str(file), str(original / file.name))
         case_dirs.append(day_folder)
     return sorted(set(case_dirs))
 
