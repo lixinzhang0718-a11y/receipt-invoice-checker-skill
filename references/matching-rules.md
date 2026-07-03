@@ -1,6 +1,6 @@
 # Matching Rules
 
-Use these rules when interpreting receipt/invoice results.
+Use these rules for direct reasoning-based receipt/invoice review. Do not rely only on automated OCR matching.
 
 ## Folder Logic
 
@@ -9,92 +9,70 @@ Use these rules when interpreting receipt/invoice results.
 - Normalize `YYYYMMDD`, `YYMMDD`, and `MMDD` filename tokens to `MMDD`.
 - Group cases by `TKE` reference when no filename date token is available or as the second part of the case name.
 - If no `TKE` reference exists, use received time plus subject.
-- Keep originals unchanged in `original/`.
-- Put marked-up copies in `annotated/`.
-- Use `00_OPEN_DAILY_DASHBOARD.html` and `00_OPEN_CASE_REVIEW.html` as the main human review entry points.
+- Default workflow uses temporary folders and does not create persistent review packs unless requested.
 
-## Amount Logic
+## Direct Review Logic
 
-Treat invoice category totals separately from detail lines:
+For each case, inspect Excel/PDF and receipt images together.
 
-- `invoice_total`: final total payable.
-- `guide_fee`: FD/HD tour fee or guide service fee.
-- `entrance_total`: total entrance fees.
-- `transportation_total`: total transportation.
-- `lunch_total`: total lunch.
+1. Extract all meaningful invoice lines:
+   - guide fee
+   - entrance / food sampling / coffee break
+   - transportation
+   - lunch
+   - category totals
+   - final invoice total
+2. Inspect receipt images visually. If one image contains several receipts, treat each visible receipt area separately.
+3. Match exact amounts when visible.
+4. Match combinations when business logic is clear:
+   - `1,000 + 1,000 = 2,000`
+   - `178 + 252 + 155 + 178 = 763`
+   - `3,380 + 338 = 3,718`
+5. Recalculate category totals and final invoice total.
+6. Separate amount mismatch from missing evidence and description conflict.
 
-The daily checker should recalculate:
-
-```text
-guide fee + entrance total + transportation total + lunch total = invoice total
-```
-
-If this calculation fails, mark `Mismatch`.
-
-## Receipt OCR Amount Logic
-
-Use conservative evidence amounts for receipt images and PDFs:
-
-- Do not use every OCR number as evidence. Japanese receipts contain phone numbers, registration numbers, ticket numbers, dates, and terminal IDs.
-- Keep money-looking amounts first: currency sign, yen symbol, comma-formatted number, or total context.
-- Exclude clear identifiers such as years, phone-number fragments, and long ID-like numbers.
-- For Japanese receipts with subtotal and 10 percent tax, create a derived total when the tax is about 10 percent of the subtotal. For example, `3,380 + 338 = 3,718`.
-- After extracting receipt evidence, filter displayed evidence to amounts that can match Excel invoice lines or derived receipt totals. Raw OCR text can remain in `extracted_data.json`.
-
-## Receipt-Required Items
+## Receipt Evidence
 
 Usually require receipt evidence:
 
 - museum, temple, shrine, castle, attraction admission
-- green tea / food sampling if entered as entrance or food item
+- green tea / food sampling / coffee break if entered as claimable item
 - lunch, cafe, restaurant
-- JR, metro, taxi, bus, water bus, Pasmo charge
+- JR, metro, taxi, bus, water bus, Pasmo/Suica charge
 
 Usually can be fixed fee without receipt:
 
 - guide fee
 - FD Tour / HD Tour fee
 
-If the user later gives a company policy that guide fees need proof, update this rule.
+If company policy requires guide fee proof, treat guide fee as receipt-required.
 
-## Notes and Conflicts
+## Common Reasoning Patterns
 
-Mark `Needs review` when:
+- A Japanese receipt may show subtotal and consumption tax separately; the payable total can be subtotal plus tax.
+- Two stored-value card charge receipts can support one Excel line, such as `1,000 + 1,000 = 2,000`.
+- A small transport history strip can support one guide/guest transport line by summing each ride.
+- A handwritten receipt can support an Excel claim if the amount, date, and store/person context are visible enough.
+- If Excel text says one quantity but the amount and receipt show another, mark it as description conflict.
 
-- a description contains one amount but the entered amount differs
-- handwritten note contains a different amount
-- OCR detects the right store but not the right amount
-- Excel has a category amount but no receipt/PDF/image supports it
-- a receipt date falls outside the selected tour date
+## Status Labels
 
-Example:
+Use simple human labels:
 
-```text
-Transportation for guide (Yokosuka-Shimbashi) says 2276yen, but amount entered is 1500.
-```
+- `Matched`: evidence supports the item.
+- `Mostly matched`: main amounts are supported but minor items/descriptions need confirmation.
+- `Needs confirmation`: evidence is missing, unclear, or description conflicts.
+- `Mismatch`: a confirmed receipt amount differs from the invoice amount.
+- `Incomplete`: required invoice or receipt attachment is missing.
 
-## Status Choice
+## Output Focus
 
-Use the strictest status found inside the case:
+Final output should be concise:
 
-```text
-Mismatch > Incomplete > Needs review > Mostly matched > Passed
-```
+- Matched items
+- Needs confirmation
+- Mismatches
+- Recalculated total
+- Suggested English reply when useful
 
-Use `Mostly matched` only when the math is correct and all receipt-required line items are matched, but a fixed fee or minor note still deserves human awareness.
-
-## Line Check Display
-
-The human-facing case review must include every invoice item extracted from Excel/PDF:
-
-- Detail lines such as entrance, transportation, lunch and bottled water.
-- Category totals such as total entrance fees, total transportation and total lunch.
-- Final invoice total.
-- Fixed guide fee.
-
-Use row-level wording that is easy to scan:
-
-- `matched` for receipt-supported amounts.
-- `not matched` for missing or conflicting receipt evidence.
-- `fixed fee` for accepted guide/FD/HD fees.
-- `calculation matched` or `calculation mismatch` for the invoice total calculation.
+Avoid raw OCR dumps unless the user asks for technical debugging.

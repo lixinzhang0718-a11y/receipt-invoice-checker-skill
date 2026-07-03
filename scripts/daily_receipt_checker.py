@@ -18,6 +18,7 @@ import json
 import re
 import shutil
 import sys
+import tempfile
 import textwrap
 import zipfile
 from dataclasses import dataclass, asdict
@@ -1230,6 +1231,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             Examples:
               daily_receipt_checker.py --init-config
               daily_receipt_checker.py --date 2026-05-08 --gmail
+              daily_receipt_checker.py --date 2026-05-08 --gmail --download-only --temp-output
               daily_receipt_checker.py --date 2026-05-08 --local-input C:\\Users\\Administrator\\Desktop\\Receipt_Check\\2026-05-08
             """
         ),
@@ -1238,6 +1240,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--gmail", action="store_true", help="Search Gmail and download supported attachments.")
     parser.add_argument("--local-input", help="Process an existing day/case folder instead of Gmail.")
     parser.add_argument("--output-root", help="Override output root folder.")
+    parser.add_argument("--download-only", action="store_true", help="Only download/classify Gmail attachments; do not generate automated review files.")
+    parser.add_argument("--temp-output", action="store_true", help="Use a temporary output root for short-lived manual review work.")
     parser.add_argument("--init-config", action="store_true", help="Create default config and exit.")
     args = parser.parse_args(argv)
 
@@ -1250,7 +1254,10 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     day = parse_day(args.date)
     config = load_config()
-    out_root = Path(args.output_root or config.get("output_root") or DEFAULT_OUTPUT_ROOT).expanduser()
+    if args.temp_output:
+        out_root = Path(tempfile.mkdtemp(prefix=f"receipt_review_{day.isoformat()}_"))
+    else:
+        out_root = Path(args.output_root or config.get("output_root") or DEFAULT_OUTPUT_ROOT).expanduser()
 
     try:
         if args.gmail:
@@ -1263,6 +1270,10 @@ def main(argv: Optional[List[str]] = None) -> int:
             day_folder = out_root / day.isoformat()
             if not day_folder.exists():
                 raise SystemExit("Use --gmail to download from Gmail or --local-input for an existing folder.")
+        if args.download_only:
+            print(f"Download-only folder: {day_folder}")
+            print("No automated review files were generated.")
+            return 0
         summaries = process_day(day_folder, config)
         print_summary(summaries, day_folder)
         return 0

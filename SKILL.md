@@ -1,173 +1,168 @@
 ---
 name: receipt-invoice-checker
-description: Download, classify, and reconcile Gmail receipt/invoice cases for a selected date. Use when the user asks to check daily Gmail emails with Excel, PDF, and image attachments; compare receipt photos/PDFs against invoice spreadsheets; create sender-based folders; annotate suspicious attachment copies; and generate per-case plus daily review summaries.
+description: Retrieve Gmail receipt/invoice attachments for a selected date and perform direct reasoning-based reconciliation. Use when the user asks to check daily Gmail emails with Excel, PDF, and image attachments; download attachments to a temporary workspace; compare receipts against invoice spreadsheets manually with model reasoning; output concise review results; and avoid generating persistent HTML/Excel evidence packs unless explicitly requested.
 ---
 
 # Receipt Invoice Checker
 
-## Core Behavior
+## Default Behavior
 
-Use this skill to process daily Gmail receipt checking work. The user normally invokes it with a short command such as "use receipt-invoice-checker" or "check Gmail receipts for 2026-05-08". If no date is given, ask for one date in `YYYY-MM-DD` format before running any download or reconciliation step.
+Use this skill to process daily Gmail receipt checking work. If no date is given, ask for one date in `YYYY-MM-DD` format.
 
-Protect evidence integrity:
+Default to **reasoning review mode**, not automated rule-report mode:
 
-- Never modify original Gmail attachments.
-- Save raw files under `original/`.
-- Save marked-up copies under `annotated/`.
-- Save extracted text, OCR output, reconciliation tables, HTML dashboards, and Excel summaries as separate result files.
-- If OCR, Gmail access, or dependencies are not configured, stop with a clear setup note instead of guessing.
+1. Search Gmail for the selected date.
+2. Download relevant Excel/PDF/image attachments to a temporary workspace.
+3. Group attachments by sender, subject, Tour Ref, and filename date token such as `0607`.
+4. Directly inspect the Excel/PDF/image contents.
+5. Reconcile amounts using human-style reasoning.
+6. Output only a clean final review summary and issue list.
+7. Do not generate persistent HTML/Excel review packs unless the user asks.
+8. Delete or ignore the temporary workspace after the final answer unless the user asks to keep it.
 
-## Standard Workflow
+Never modify Gmail attachments. Never upload credentials, tokens, downloaded emails, or attachments.
 
-1. Confirm the processing date.
-2. Read `references/gmail-setup.md` only if Gmail credentials, token, or dependency setup is missing.
-3. Use `scripts/daily_receipt_checker.py` for the automated pass:
+## Gmail Download Command
+
+Use this command for the default lightweight workflow:
 
 ```bash
-python "%USERPROFILE%\.codex\skills\receipt-invoice-checker\scripts\daily_receipt_checker.py" --date YYYY-MM-DD --gmail
+python "%USERPROFILE%\.codex\skills\receipt-invoice-checker\scripts\daily_receipt_checker.py" --date YYYY-MM-DD --gmail --download-only --temp-output
 ```
 
-4. Review the generated daily folder:
+The command prints a temporary folder path. Use that path as the working source for direct analysis. The folder structure remains simple:
 
 ```text
-Receipt_Check/
+receipt_review_YYYY-MM-DD_xxx/
   YYYY-MM-DD/
-    00_OPEN_DAILY_DASHBOARD.html
-    00_DAILY_SUMMARY.xlsx
     sender@example.com/
-      0607_TKE1262583/
-        00_OPEN_CASE_REVIEW.html
-        01_CASE_SUMMARY.xlsx
+      0607_Subject_or_TKE/
         original/
-        annotated/
-        case_result.md
-        case_result.csv
-        extracted_data.json
+          invoice.xlsx
+          receipt.jpg
         email_info.json
 ```
 
-5. Give the user a concise Chinese summary:
-
-- total cases processed
-- passed cases
-- review/mismatch/incomplete cases
-- folder path
-- highest priority issues
+If Gmail access or dependencies fail, read `references/gmail-setup.md`.
 
 ## Gmail Search Rules
 
-For a selected date, search Gmail for messages with attachments and likely receipt/invoice meaning. Use a date-bounded query similar to:
+For a selected date, search Gmail with a date-bounded attachment query similar to:
 
 ```text
 after:YYYY/MM/DD before:YYYY/MM/DD has:attachment (receipt OR invoice OR "tour ref" OR TKE OR filename:xlsx OR filename:xls OR filename:pdf OR filename:jpg OR filename:jpeg OR filename:png)
 ```
 
-If Gmail search returns too many unrelated messages, narrow by known sender or subject keywords. If it returns too few, search only:
+If too few messages are found, broaden to:
 
 ```text
 after:YYYY/MM/DD before:YYYY/MM/DD has:attachment
 ```
 
-Then filter locally by attachment type and text evidence.
+Then filter locally by attachment types and visible case relevance.
 
-## Classification Rules
+## Grouping Rules
 
-Create one sender folder per sender email address. Create one case folder per likely attachment group. If one Gmail message contains several cases, group attachments by filename date token first. For example, all attachments containing `0607` belong together, and all attachments containing `0608` belong together.
+Group first by sender. Inside each sender, group attachments by:
 
-Determine the case name from this priority order:
-
-1. Attachment filename date token such as `0607` or `20260607`, normalized to `0607`.
+1. Filename date token, such as `0607`, `20260607`, or `260607`, normalized to `0607`.
 2. Tour reference such as `TKE1262583`.
-3. Guest name or clear subject token.
-4. Message received time plus short subject.
-5. Gmail message id if no other stable name exists.
+3. Subject/guest name.
+4. Gmail message id if no better label exists.
 
-Use only filesystem-safe names. Keep a copy of the original subject, sender, received time, and Gmail message id inside `email_info.json`.
+If one email contains multiple cases, filename date token controls grouping. For example, all `0607` Excel/images belong together, while all `0608` files belong to another case.
 
-## Reconciliation Rules
+## Direct Reconciliation Method
 
-Read `references/matching-rules.md` when the result is ambiguous or when changing matching logic.
+Do not rely only on OCR amount matching. Use model reasoning from the visible receipt image, Excel rows, filenames, and email context.
 
-Default expense categories:
+For each case:
 
-- `guide_fee`: guide fee or FD/HD tour fee. Usually no receipt required; mark as fixed fee unless the user's rules say otherwise.
-- `entrance`: museum, temple, shrine, castle, green tea/food sampling if shown under entrance fees.
-- `transportation`: JR, metro, bus, water bus, taxi, Pasmo charge, guide transport.
-- `lunch`: cafe, restaurant, lunch budget, food and drink.
-- `invoice_total`: final total invoice amount.
+1. Read the Excel/PDF invoice and list every meaningful amount:
+   - guide fee
+   - entrance/food sampling/coffee break
+   - transportation
+   - lunch
+   - category totals
+   - final invoice total
+2. Inspect receipt images visually. When one image contains multiple receipts, separate them mentally by region.
+3. Match exact amounts where visible.
+4. Support combination matching:
+   - `1,000 + 1,000 = 2,000`
+   - `178 + 252 + 155 + 178 = 763`
+   - `3,380 + 338 = 3,718`
+5. Mark fixed guide fees separately if no receipt is expected.
+6. Mark missing or unclear receipt evidence as needing confirmation.
+7. Identify description conflicts, such as Excel text saying `1,900 x 2` while receipts show `1,000 x 2`.
 
-For receipt photos, do not treat every OCR number as a receipt amount. Use total-focused matching:
+## Output Format
 
-- Ignore obvious phone numbers, ticket numbers, registration numbers, years, terminal IDs, and long identifiers.
-- Prefer amounts with currency signs, commas, or total-like receipt context.
-- If a Japanese receipt shows subtotal and 10 percent tax separately, derive the tax-included total. Example: `JPY 3,380 + tax JPY 338 = JPY 3,718`.
-- Show and match only amounts that connect to an invoice line or a derived receipt total. Keep raw OCR text in `extracted_data.json` for audit, but do not clutter the review page with irrelevant numbers.
+Return a concise Chinese answer unless the user asks for English. Keep the internal template ASCII-safe.
 
-Status meanings:
-
-- `Passed`: invoice calculation is correct and all receipt-required items are matched.
-- `Mostly matched`: main receipt amounts match, but fixed guide fee or minor note needs human awareness.
-- `Needs review`: OCR is weak, receipt missing, note conflicts with entered amount, or category matching is uncertain.
-- `Mismatch`: Excel/PDF invoice amount clearly differs from receipt amount.
-- `Incomplete`: required Excel/PDF or image/PDF evidence is missing.
-
-## Annotation Rules
-
-Annotate copies only:
-
-- For images, draw boxes around OCR-detected amounts and add a short issue banner if the case is not passed.
-- For invoice spreadsheets, create `invoice_checked.xlsx` with a `CHECK_RESULT` sheet when `openpyxl` is available.
-- For PDFs, extract text and save findings; only create annotated PDF copies when a PDF annotation library is available and reliable.
-
-If annotation is not possible, still create `case_result.md`, `case_result.csv`, and `extracted_data.json`.
-
-## Review Output Rules
-
-Make `00_OPEN_DAILY_DASHBOARD.html` the main daily entry point. It must summarize all cases with status counts, issue counts, sender, case name, main issue, and links to each case review.
-
-Make `00_OPEN_CASE_REVIEW.html` the main case entry point. It must show the case status, main issue, line-check table, annotated evidence images, and original attachment links.
-
-The case line-check table must include every invoice item extracted from the Excel/PDF invoice, including detail lines and totals. Display clear row-level results:
-
-- `matched`: the invoice amount is supported by receipt evidence.
-- `not matched`: the invoice amount has no matching receipt evidence or has a conflicting description amount.
-- `fixed fee`: guide/FD/HD fee treated as fixed fee unless policy requires receipt.
-- `calculation matched`: invoice total matches the recalculated category totals.
-- `calculation mismatch`: invoice total does not match recalculated category totals.
-
-Make Excel outputs usable for daily work:
-
-- `00_DAILY_SUMMARY.xlsx`: colored daily dashboard with filter, frozen header, priority column, main issue, and hyperlinks to case review pages.
-- `01_CASE_SUMMARY.xlsx`: per-case workbook with `Summary`, `Line_Check`, and `Evidence` sheets.
-
-Keep `.md` and `.csv` only as backup outputs, not as the primary review format.
-
-## Manual Review Expectations
-
-Do not overclaim full automation. Japanese receipt OCR, handwritten notes, and scanned PDFs can be uncertain. Always surface uncertain items rather than forcing a pass.
-
-For each questionable case, include an English note suitable for email follow-up, for example:
+Use this shape:
 
 ```text
-Please confirm the guide transportation amount. The note says 2,276 yen, but the invoice amount entered is 1,500 yen.
+Overview:
+- Total cases:
+- Matched:
+- Needs confirmation:
+- Mismatch:
+
+Case: [case name]
+Status: [Matched / Mostly matched / Needs confirmation / Mismatch]
+
+Matched:
+- Item: Excel JPY x; receipt evidence JPY x; explanation.
+
+Needs confirmation:
+- Item: Excel JPY x; issue.
+
+Calculation:
+- Total invoice: Excel JPY x; recalculated JPY x; correct/incorrect.
+
+Suggested reply:
+[short English follow-up if needed]
 ```
+
+Prefer practical conclusions over raw OCR dumps. Do not show long extracted text unless the user asks.
+
+## Legacy Automated Report Mode
+
+Only use automated report mode if the user explicitly asks for HTML/Excel evidence packs or persistent review files.
+
+Command:
+
+```bash
+python "%USERPROFILE%\.codex\skills\receipt-invoice-checker\scripts\daily_receipt_checker.py" --date YYYY-MM-DD --gmail
+```
+
+This creates:
+
+```text
+00_OPEN_DAILY_DASHBOARD.html
+00_DAILY_SUMMARY.xlsx
+00_OPEN_CASE_REVIEW.html
+01_CASE_SUMMARY.xlsx
+```
+
+This mode is useful for debugging and audit packs, but it is no longer the default because complex receipt photos can be more accurately handled by direct reasoning review.
 
 ## Useful Commands
 
-Run the Gmail daily workflow:
-
-```bash
-python "%USERPROFILE%\.codex\skills\receipt-invoice-checker\scripts\daily_receipt_checker.py" --date 2026-05-08 --gmail
-```
-
-Run against an already downloaded local folder:
-
-```bash
-python "%USERPROFILE%\.codex\skills\receipt-invoice-checker\scripts\daily_receipt_checker.py" --date 2026-05-08 --local-input "C:\Users\Administrator\Desktop\Receipt_Check\2026-05-08"
-```
-
-Create a default config template:
+Initialize config:
 
 ```bash
 python "%USERPROFILE%\.codex\skills\receipt-invoice-checker\scripts\daily_receipt_checker.py" --init-config
+```
+
+Download only to temporary folder:
+
+```bash
+python "%USERPROFILE%\.codex\skills\receipt-invoice-checker\scripts\daily_receipt_checker.py" --date 2026-05-08 --gmail --download-only --temp-output
+```
+
+Run legacy automated report mode on a local folder:
+
+```bash
+python "%USERPROFILE%\.codex\skills\receipt-invoice-checker\scripts\daily_receipt_checker.py" --date 2026-05-08 --local-input "C:\Users\Administrator\Desktop\Receipt_Check\2026-05-08"
 ```
