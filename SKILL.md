@@ -1,6 +1,6 @@
 ---
 name: receipt-invoice-checker
-description: Retrieve Gmail receipt/invoice attachments for a selected date and perform direct reasoning-based reconciliation. Use when the user asks to check daily Gmail emails with Excel, PDF, and image attachments; download attachments to a temporary workspace; compare receipts against invoice spreadsheets manually with model reasoning; output concise review results; and avoid generating persistent HTML/Excel evidence packs unless explicitly requested.
+description: Retrieve Gmail receipt/invoice attachments for a selected date and perform direct reasoning-based reconciliation. Use when the user asks to check daily Gmail emails with Excel, PDF, and image attachments; download attachments to a temporary workspace; compare receipts against invoice spreadsheets manually with model reasoning; and output concise review results without generating annotation, HTML dashboard, or Excel review files.
 ---
 
 # Receipt Invoice Checker
@@ -17,7 +17,7 @@ Default to **reasoning review mode**, not automated rule-report mode:
 4. Directly inspect the Excel/PDF/image contents.
 5. Reconcile amounts using human-style reasoning.
 6. Output only a clean final review summary and issue list.
-7. Do not generate persistent HTML/Excel review packs unless the user asks.
+7. Do not generate annotation images, HTML dashboards, Excel review files, markdown review files, or CSV review files.
 8. Delete or ignore the temporary workspace after the final answer unless the user asks to keep it.
 
 Never modify Gmail attachments. Never upload credentials, tokens, downloaded emails, or attachments.
@@ -27,10 +27,10 @@ Never modify Gmail attachments. Never upload credentials, tokens, downloaded ema
 Use this command for the default lightweight workflow:
 
 ```bash
-python "%USERPROFILE%\.codex\skills\receipt-invoice-checker\scripts\daily_receipt_checker.py" --date YYYY-MM-DD --gmail --download-only --temp-output
+python "%USERPROFILE%\.codex\skills\receipt-invoice-checker\scripts\daily_receipt_checker.py" --date YYYY-MM-DD --gmail
 ```
 
-The command prints a temporary folder path. Use that path as the working source for direct analysis. The folder structure remains simple:
+The command prints a temporary folder path. Use that path as the working source for direct analysis. It downloads only original attachments and creates no review artifacts. The folder structure remains simple:
 
 ```text
 receipt_review_YYYY-MM-DD_xxx/
@@ -40,7 +40,6 @@ receipt_review_YYYY-MM-DD_xxx/
         original/
           invoice.xlsx
           receipt.jpg
-        email_info.json
 ```
 
 If Gmail access or dependencies fail, read `references/gmail-setup.md`.
@@ -126,27 +125,6 @@ Suggested reply:
 
 Prefer practical conclusions over raw OCR dumps. Do not show long extracted text unless the user asks.
 
-## Legacy Automated Report Mode
-
-Only use automated report mode if the user explicitly asks for HTML/Excel evidence packs or persistent review files.
-
-Command:
-
-```bash
-python "%USERPROFILE%\.codex\skills\receipt-invoice-checker\scripts\daily_receipt_checker.py" --date YYYY-MM-DD --gmail
-```
-
-This creates:
-
-```text
-00_OPEN_DAILY_DASHBOARD.html
-00_DAILY_SUMMARY.xlsx
-00_OPEN_CASE_REVIEW.html
-01_CASE_SUMMARY.xlsx
-```
-
-This mode is useful for debugging and audit packs, but it is no longer the default because complex receipt photos can be more accurately handled by direct reasoning review.
-
 ## Useful Commands
 
 Initialize config:
@@ -155,13 +133,13 @@ Initialize config:
 python "%USERPROFILE%\.codex\skills\receipt-invoice-checker\scripts\daily_receipt_checker.py" --init-config
 ```
 
-Download only to temporary folder:
+Download to temporary folder:
 
 ```bash
-python "%USERPROFILE%\.codex\skills\receipt-invoice-checker\scripts\daily_receipt_checker.py" --date 2026-05-08 --gmail --download-only --temp-output
+python "%USERPROFILE%\.codex\skills\receipt-invoice-checker\scripts\daily_receipt_checker.py" --date 2026-05-08 --gmail
 ```
 
-Run legacy automated report mode on a local folder:
+List an already downloaded local folder without generating review files:
 
 ```bash
 python "%USERPROFILE%\.codex\skills\receipt-invoice-checker\scripts\daily_receipt_checker.py" --date 2026-05-08 --local-input "C:\Users\Administrator\Desktop\Receipt_Check\2026-05-08"
