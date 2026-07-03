@@ -22,6 +22,17 @@ Default to **reasoning review mode**, not automated rule-report mode:
 
 Never modify Gmail attachments. Never upload credentials, tokens, downloaded emails, or attachments.
 
+## Language Rules
+
+Default all chat-facing output to English, including overview text, case headings, tables, short explanations, and suggested replies.
+
+Remain compatible with Chinese and Japanese:
+
+- Understand Chinese, Japanese, and English user requests.
+- Read Chinese/Japanese/English text in email subjects, Excel/PDF files, and receipt images when visible.
+- Preserve original place names, item names, and notes when they matter for evidence, but explain the reconciliation result in English by default.
+- Reply in Chinese or Japanese only if the user explicitly asks for that language.
+
 ## Gmail Download Command
 
 Use this command for the default lightweight workflow:
@@ -96,7 +107,7 @@ For each case:
 
 ## Output Format
 
-Return a concise Chinese answer unless the user asks for English. Keep the internal template ASCII-safe.
+Return a concise English answer unless the user explicitly asks for Chinese or Japanese. Keep the internal template ASCII-safe.
 
 Use this shape. Separate cases clearly in the conversation so each case can be checked independently.
 

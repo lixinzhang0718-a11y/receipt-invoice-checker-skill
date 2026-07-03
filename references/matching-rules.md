@@ -2,6 +2,13 @@
 
 Use these rules for direct reasoning-based receipt/invoice review. Do not rely only on automated OCR matching.
 
+## Language Handling
+
+- Default all final review output to English.
+- Understand Chinese, Japanese, and English text in user requests, email subjects, spreadsheets, PDFs, and receipt photos.
+- Preserve source-language item names when they are needed for evidence, but explain the result in English by default.
+- Switch the final answer to Chinese or Japanese only when the user explicitly asks.
+
 ## Folder Logic
 
 - Group by sender first.
