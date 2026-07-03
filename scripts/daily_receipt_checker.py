@@ -13,6 +13,7 @@ import base64
 import csv
 import datetime as dt
 import email.utils
+import html
 import json
 import re
 import shutil
@@ -33,9 +34,10 @@ IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".tif", ".tiff", ".bmp"}
 EXCEL_EXTS = {".xlsx", ".xlsm"}
 PDF_EXTS = {".pdf"}
 SUPPORTED_EXTS = IMAGE_EXTS | EXCEL_EXTS | PDF_EXTS
-GENERATED_PREFIXES = ("daily_review_summary", "case_result", "extracted_data", "email_info")
+GENERATED_PREFIXES = ("00_", "01_", "daily_review_summary", "case_result", "extracted_data", "email_info")
 
 TKE_RE = re.compile(r"\bTKE[\s_-]*(\d{4,})\b", re.I)
+DATE_TOKEN_RE = re.compile(r"(?<!\d)(20\d{6}|\d{6}|\d{4})(?!\d)")
 AMOUNT_RE = re.compile(
     r"(?:JPY|YEN|yen|¥|￥)\s*([0-9]{1,3}(?:,[0-9]{3})+|[0-9]{3,7})|"
     r"([0-9]{1,3}(?:,[0-9]{3})+|[0-9]{3,7})\s*(?:JPY|YEN|yen|円)"
@@ -200,6 +202,58 @@ def extract_tour_ref(text: str) -> Optional[str]:
     return None
 
 
+def extract_date_token(filename: str, selected_day: Optional[dt.date] = None) -> Optional[str]:
+    """Return a normalized attachment date token, favoring MMDD such as 0607."""
+    candidates = []
+    for match in DATE_TOKEN_RE.finditer(Path(filename).stem):
+        mmdd = normalize_date_token(match.group(1))
+        if mmdd:
+            candidates.append(mmdd)
+    if not candidates:
+        return None
+    if selected_day:
+        selected_mmdd = selected_day.strftime("%m%d")
+        if selected_mmdd in candidates:
+            return selected_mmdd
+    return candidates[0]
+
+
+def normalize_date_token(token: str) -> Optional[str]:
+    token = re.sub(r"\D", "", token)
+    if len(token) == 8 and token.startswith("20"):
+        mmdd = token[4:8]
+    elif len(token) == 6:
+        yy_mmdd = token[2:6]
+        mmdd_yy = token[0:4]
+        mmdd = yy_mmdd if valid_mmdd(yy_mmdd) else mmdd_yy
+    elif len(token) == 4:
+        mmdd = token
+    else:
+        return None
+    return mmdd if valid_mmdd(mmdd) else None
+
+
+def valid_mmdd(mmdd: str) -> bool:
+    if not re.fullmatch(r"\d{4}", mmdd):
+        return False
+    month = int(mmdd[:2])
+    day = int(mmdd[2:])
+    return 1 <= month <= 12 and 1 <= day <= 31
+
+
+def case_label_for_group(date_token: str, tour_ref: Optional[str], subject: str, msg_id: str) -> str:
+    base = tour_ref or sanitize(subject[:45], "message_" + msg_id[:8])
+    if date_token and date_token != "undated":
+        return sanitize(f"{date_token}_{base}")
+    return sanitize(base)
+
+
+def supported_input_file(path: Path) -> bool:
+    if not path.is_file() or path.suffix.lower() not in SUPPORTED_EXTS:
+        return False
+    return not path.stem.lower().startswith(GENERATED_PREFIXES)
+
+
 def download_gmail(day: dt.date, out_root: Path, config: Dict[str, Any]) -> Path:
     service = get_gmail_service(config)
     day_folder = out_root / day.isoformat()
@@ -226,22 +280,6 @@ def download_gmail(day: dt.date, out_root: Path, config: Dict[str, Any]) -> Path
         evidence_text = "\n".join([subject, sender_raw, body])
         tour_ref = extract_tour_ref(evidence_text)
         received = headers.get("date", "")
-        case_label = tour_ref or sanitize(subject[:60], "message_" + msg_id[:8])
-        case_folder = day_folder / sender_folder_name / sanitize(case_label)
-        original = case_folder / "original"
-        original.mkdir(parents=True, exist_ok=True)
-        (case_folder / "annotated").mkdir(parents=True, exist_ok=True)
-
-        info = {
-            "gmail_message_id": msg_id,
-            "sender": sender_raw,
-            "sender_email": sender_email,
-            "subject": subject,
-            "date_header": received,
-            "tour_ref": tour_ref,
-            "query": query,
-        }
-        (case_folder / "email_info.json").write_text(json.dumps(info, indent=2), encoding="utf-8")
 
         saved = 0
         for part in walk_parts(payload):
@@ -261,6 +299,23 @@ def download_gmail(day: dt.date, out_root: Path, config: Dict[str, Any]) -> Path
                 .execute()
             )
             data = base64.urlsafe_b64decode(att["data"].encode("ascii"))
+            date_token = extract_date_token(filename, day) or "undated"
+            case_label = case_label_for_group(date_token, tour_ref, subject, msg_id)
+            case_folder = day_folder / sender_folder_name / case_label
+            original = case_folder / "original"
+            original.mkdir(parents=True, exist_ok=True)
+            (case_folder / "annotated").mkdir(parents=True, exist_ok=True)
+            info = {
+                "gmail_message_id": msg_id,
+                "sender": sender_raw,
+                "sender_email": sender_email,
+                "subject": subject,
+                "date_header": received,
+                "tour_ref": tour_ref,
+                "attachment_date_token": date_token,
+                "query": query,
+            }
+            (case_folder / "email_info.json").write_text(json.dumps(info, indent=2), encoding="utf-8")
             target = original / sanitize(filename, f"attachment_{saved}{suffix}")
             if target.exists():
                 target = original / f"{target.stem}_{saved}{target.suffix}"
@@ -268,6 +323,9 @@ def download_gmail(day: dt.date, out_root: Path, config: Dict[str, Any]) -> Path
             saved += 1
 
         if saved == 0:
+            case_label = case_label_for_group("undated", tour_ref, subject, msg_id)
+            case_folder = day_folder / sender_folder_name / case_label
+            case_folder.mkdir(parents=True, exist_ok=True)
             (case_folder / "case_result.md").write_text(
                 "# Case Result\n\nNo supported attachments were downloaded.\n",
                 encoding="utf-8",
@@ -418,6 +476,10 @@ def extract_amounts(text: str) -> List[int]:
         value = int(token.replace(",", ""))
         if 100 <= value <= 9999999:
             amounts.append(value)
+    for token in re.findall(r"(?<!\d)([0-9]{1,3}(?:,[0-9]{3})+|[1-9][0-9]{2,6})(?!\d)", text or ""):
+        value = int(token.replace(",", ""))
+        if 100 <= value <= 9999999 and value not in amounts:
+            amounts.append(value)
     return amounts
 
 
@@ -449,19 +511,20 @@ def ocr_image(path: Path, annotated_dir: Path, languages: str, issue_banner: str
         pytesseract.pytesseract.tesseract_cmd = tesseract_cmd
 
     image = Image.open(path)
+    ocr_image_obj = image.convert("RGB")
     try:
-        text = pytesseract.image_to_string(image, lang=languages)
+        text = pytesseract.image_to_string(ocr_image_obj, lang=languages)
     except Exception:
-        text = pytesseract.image_to_string(image)
+        text = pytesseract.image_to_string(ocr_image_obj)
 
     amounts = [EvidenceAmount(a, str(path), context_for_amount(text, a)) for a in extract_amounts(text)]
 
-    annotated = image.convert("RGB")
+    annotated = ocr_image_obj.copy()
     draw = ImageDraw.Draw(annotated)
     try:
-        data = pytesseract.image_to_data(image, lang=languages, output_type=pytesseract.Output.DICT)
+        data = pytesseract.image_to_data(ocr_image_obj, lang=languages, output_type=pytesseract.Output.DICT)
     except Exception:
-        data = pytesseract.image_to_data(image, output_type=pytesseract.Output.DICT)
+        data = pytesseract.image_to_data(ocr_image_obj, output_type=pytesseract.Output.DICT)
 
     for i, word in enumerate(data.get("text", [])):
         if extract_amounts(word):
@@ -492,25 +555,31 @@ def extract_pdf(path: Path) -> Tuple[str, List[EvidenceAmount], Optional[str]]:
 
 
 def find_case_dirs(day_folder: Path) -> List[Path]:
-    def supported_input_file(path: Path) -> bool:
-        if not path.is_file() or path.suffix.lower() not in SUPPORTED_EXTS:
-            return False
-        return not path.stem.lower().startswith(GENERATED_PREFIXES)
-
     case_dirs: List[Path] = []
     for original in day_folder.rglob("original"):
         if original.is_dir() and any(supported_input_file(p) for p in original.iterdir()):
             case_dirs.append(original.parent)
     if not case_dirs:
-        # Treat the folder itself as one manually downloaded case.
+        # Split manually downloaded loose attachments by filename date token.
         direct_files = [p for p in day_folder.iterdir() if supported_input_file(p)]
         if not direct_files:
             return []
-        original = day_folder / "original"
-        original.mkdir(exist_ok=True)
+        grouped: Dict[str, List[Path]] = {}
         for file in direct_files:
-            shutil.move(str(file), str(original / file.name))
-        case_dirs.append(day_folder)
+            token = extract_date_token(file.name) or "undated"
+            grouped.setdefault(token, []).append(file)
+        for token, files in grouped.items():
+            case_folder = day_folder / "local_files" / sanitize(token)
+            original = case_folder / "original"
+            original.mkdir(parents=True, exist_ok=True)
+            (case_folder / "annotated").mkdir(exist_ok=True)
+            for file in files:
+                shutil.move(str(file), str(original / file.name))
+            (case_folder / "email_info.json").write_text(
+                json.dumps({"source": "local-input", "attachment_date_token": token}, indent=2),
+                encoding="utf-8",
+            )
+            case_dirs.append(case_folder)
     return sorted(set(case_dirs))
 
 
@@ -605,10 +674,193 @@ def write_case_outputs(case_dir: Path, rows: List[CheckRow], status: str, extrac
             writer.writerow(asdict(row))
 
     (case_dir / "extracted_data.json").write_text(json.dumps(extracted, indent=2, ensure_ascii=False), encoding="utf-8")
+    create_case_summary_workbook(case_dir, rows, status, extracted)
+    create_case_review_html(case_dir, rows, status, extracted)
 
 
 def escape_md(value: str) -> str:
     return (value or "").replace("|", "\\|").replace("\n", " ")
+
+
+def h(value: Any) -> str:
+    return html.escape("" if value is None else str(value), quote=True)
+
+
+def rel_link(from_dir: Path, target: Path) -> str:
+    try:
+        return Path(target).resolve().relative_to(from_dir.resolve()).as_posix()
+    except Exception:
+        return Path(target).as_posix()
+
+
+def status_class(status: str) -> str:
+    return {
+        "Passed": "passed",
+        "Mostly matched": "mostly",
+        "Needs review": "review",
+        "Incomplete": "incomplete",
+        "Mismatch": "mismatch",
+    }.get(status, "review")
+
+
+def main_issue(rows: List[CheckRow]) -> str:
+    for severity in ["Mismatch", "Incomplete", "Needs review"]:
+        for row in rows:
+            if row.result == severity:
+                return row.note or row.item
+    return "No major issue found."
+
+
+def status_fill(status: str) -> str:
+    return {
+        "Passed": "C6EFCE",
+        "Mostly matched": "D9EAD3",
+        "Needs review": "FFF2CC",
+        "Incomplete": "D9D9D9",
+        "Mismatch": "F4CCCC",
+    }.get(status, "FFF2CC")
+
+
+def style_worksheet(ws) -> None:
+    try:
+        from openpyxl.styles import Font, PatternFill, Alignment
+        from openpyxl.utils import get_column_letter
+    except Exception:
+        return
+    header_fill = PatternFill("solid", fgColor="1F4E78")
+    header_font = Font(color="FFFFFF", bold=True)
+    for cell in ws[1]:
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(vertical="top", wrap_text=True)
+    ws.freeze_panes = "A2"
+    ws.auto_filter.ref = ws.dimensions
+    for row in ws.iter_rows(min_row=2):
+        for cell in row:
+            cell.alignment = Alignment(vertical="top", wrap_text=True)
+    widths = {}
+    for row in ws.iter_rows():
+        for cell in row:
+            widths[cell.column] = min(max(widths.get(cell.column, 8), len(str(cell.value or "")) + 2), 55)
+    for col, width in widths.items():
+        ws.column_dimensions[get_column_letter(col)].width = width
+
+
+def create_case_review_html(case_dir: Path, rows: List[CheckRow], status: str, extracted: Dict[str, Any]) -> Path:
+    annotated = case_dir / "annotated"
+    original = case_dir / "original"
+    annotated_files = sorted([p for p in annotated.iterdir() if p.is_file()]) if annotated.exists() else []
+    original_files = sorted([p for p in original.iterdir() if p.is_file()]) if original.exists() else []
+    issue = main_issue(rows)
+    html_rows = []
+    for row in rows:
+        html_rows.append(
+            "<tr>"
+            f"<td>{h(row.result)}</td>"
+            f"<td>{h(row.item)}</td>"
+            f"<td>{h(row.invoice_amount)}</td>"
+            f"<td>{h(row.receipt_evidence)}</td>"
+            f"<td>{h(row.note)}</td>"
+            "</tr>"
+        )
+    images = []
+    for file in annotated_files:
+        if file.suffix.lower() in IMAGE_EXTS:
+            images.append(
+                f'<figure><a href="{h(rel_link(case_dir, file))}">'
+                f'<img src="{h(rel_link(case_dir, file))}" alt="{h(file.name)}"></a>'
+                f"<figcaption>{h(file.name)}</figcaption></figure>"
+            )
+    file_links = "".join(
+        f'<li><a href="{h(rel_link(case_dir, file))}">{h(file.name)}</a></li>'
+        for file in original_files
+    )
+    doc = f"""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Case Review - {h(case_dir.name)}</title>
+<style>
+body {{ font-family: Segoe UI, Arial, sans-serif; margin: 24px; color: #1f2933; }}
+.status {{ display:inline-block; padding:8px 12px; border-radius:6px; font-weight:700; }}
+.passed {{ background:#c6efce; }} .mostly {{ background:#d9ead3; }}
+.review {{ background:#fff2cc; }} .incomplete {{ background:#d9d9d9; }} .mismatch {{ background:#f4cccc; }}
+.issue {{ margin:16px 0; padding:12px 14px; background:#fff7ed; border-left:5px solid #f97316; }}
+table {{ border-collapse: collapse; width:100%; margin-top:16px; }}
+th, td {{ border:1px solid #d0d7de; padding:8px; vertical-align:top; font-size:14px; }}
+th {{ background:#1f4e78; color:white; text-align:left; position:sticky; top:0; }}
+.grid {{ display:grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap:16px; margin-top:16px; }}
+figure {{ margin:0; border:1px solid #d0d7de; padding:8px; background:#fafafa; }}
+img {{ max-width:100%; height:auto; display:block; }}
+figcaption {{ font-size:12px; margin-top:6px; color:#52616b; word-break:break-all; }}
+a {{ color:#0969da; }}
+</style>
+</head>
+<body>
+<h1>Case Review: {h(case_dir.name)}</h1>
+<p><span class="status {status_class(status)}">{h(status)}</span></p>
+<div class="issue"><strong>Main issue:</strong> {h(issue)}</div>
+<p><a href="01_CASE_SUMMARY.xlsx">Open 01_CASE_SUMMARY.xlsx</a> | <a href="case_result.csv">Open CSV backup</a></p>
+<h2>Line Check</h2>
+<table>
+<thead><tr><th>Result</th><th>Item</th><th>Invoice Amount</th><th>Receipt Evidence</th><th>Note</th></tr></thead>
+<tbody>{''.join(html_rows)}</tbody>
+</table>
+<h2>Annotated Evidence</h2>
+<div class="grid">{''.join(images) if images else '<p>No annotated image generated.</p>'}</div>
+<h2>Original Attachments</h2>
+<ul>{file_links}</ul>
+</body>
+</html>
+"""
+    target = case_dir / "00_OPEN_CASE_REVIEW.html"
+    target.write_text(doc, encoding="utf-8")
+    return target
+
+
+def create_case_summary_workbook(case_dir: Path, rows: List[CheckRow], status: str, extracted: Dict[str, Any]) -> None:
+    try:
+        import openpyxl
+        from openpyxl.styles import PatternFill
+    except Exception:
+        return
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Summary"
+    info = {}
+    info_path = case_dir / "email_info.json"
+    if info_path.exists():
+        try:
+            info = json.loads(info_path.read_text(encoding="utf-8"))
+        except Exception:
+            info = {}
+    ws.append(["Field", "Value"])
+    for key, value in [
+        ("Status", status),
+        ("Main Issue", main_issue(rows)),
+        ("Case Folder", str(case_dir)),
+        ("Sender", info.get("sender") or info.get("sender_email", "")),
+        ("Subject", info.get("subject", "")),
+        ("Tour Ref", info.get("tour_ref", "")),
+        ("Attachment Date Token", info.get("attachment_date_token", "")),
+    ]:
+        ws.append([key, value])
+    style_worksheet(ws)
+    ws["B2"].fill = PatternFill("solid", fgColor=status_fill(status))
+
+    ws2 = wb.create_sheet("Line_Check")
+    ws2.append(["Result", "Item", "Invoice Amount", "Receipt Evidence", "Note"])
+    for row in rows:
+        ws2.append([row.result, row.item, row.invoice_amount, row.receipt_evidence, row.note])
+        ws2.cell(ws2.max_row, 1).fill = PatternFill("solid", fgColor=status_fill(row.result))
+    style_worksheet(ws2)
+
+    ws3 = wb.create_sheet("Evidence")
+    ws3.append(["Amount", "Source", "Context"])
+    for ev in extracted.get("evidence_amounts", []):
+        ws3.append([ev.get("amount"), Path(ev.get("source", "")).name, ev.get("context", "")])
+    style_worksheet(ws3)
+    wb.save(case_dir / "01_CASE_SUMMARY.xlsx")
 
 
 def create_checked_workbook(case_dir: Path, invoice_files: List[Path], rows: List[CheckRow]) -> None:
@@ -689,6 +941,8 @@ def process_case(case_dir: Path, config: Dict[str, Any]) -> Dict[str, Any]:
         "sender": case_dir.parent.name if case_dir.parent != case_dir else "",
         "status": status,
         "issue_count": sum(1 for r in rows if r.result in {"Needs review", "Mismatch", "Incomplete"}),
+        "main_issue": main_issue(rows),
+        "review_path": str(case_dir / "00_OPEN_CASE_REVIEW.html"),
         "path": str(case_dir),
     }
 
@@ -703,22 +957,109 @@ def write_daily_summary(day_folder: Path, summaries: List[Dict[str, Any]]) -> No
 
     csv_path = day_folder / "Daily_Review_Summary.csv"
     with csv_path.open("w", newline="", encoding="utf-8-sig") as f:
-        writer = csv.DictWriter(f, fieldnames=["sender", "case", "status", "issue_count", "path"])
+        writer = csv.DictWriter(
+            f,
+            fieldnames=["sender", "case", "status", "issue_count", "main_issue", "review_path", "path"],
+            extrasaction="ignore",
+        )
         writer.writeheader()
         writer.writerows(summaries)
 
+    create_daily_summary_workbook(day_folder, summaries)
+    create_daily_dashboard_html(day_folder, summaries)
+
+
+def create_daily_summary_workbook(day_folder: Path, summaries: List[Dict[str, Any]]) -> None:
     try:
         import openpyxl
-
-        wb = openpyxl.Workbook()
-        ws = wb.active
-        ws.title = "Daily Review"
-        ws.append(["Sender", "Case", "Status", "Issues", "Folder"])
-        for s in summaries:
-            ws.append([s["sender"], s["case"], s["status"], s["issue_count"], s["path"]])
-        wb.save(day_folder / "Daily_Review_Summary.xlsx")
+        from openpyxl.styles import PatternFill
     except Exception:
-        pass
+        return
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Daily Review"
+    ws.append(["Status", "Priority", "Sender", "Case", "Issues", "Main Issue", "Open Review", "Folder"])
+    priority = {"Mismatch": 1, "Incomplete": 2, "Needs review": 3, "Mostly matched": 4, "Passed": 5}
+    for s in sorted(summaries, key=lambda x: (priority.get(x["status"], 9), x["sender"], x["case"])):
+        review_path = Path(s["path"]) / "00_OPEN_CASE_REVIEW.html"
+        ws.append([
+            s["status"],
+            priority.get(s["status"], 9),
+            s["sender"],
+            s["case"],
+            s["issue_count"],
+            s.get("main_issue", ""),
+            "Open case review",
+            s["path"],
+        ])
+        row_idx = ws.max_row
+        ws.cell(row_idx, 1).fill = PatternFill("solid", fgColor=status_fill(s["status"]))
+        if review_path.exists():
+            ws.cell(row_idx, 7).hyperlink = str(review_path)
+            ws.cell(row_idx, 7).style = "Hyperlink"
+    style_worksheet(ws)
+    target = day_folder / "00_DAILY_SUMMARY.xlsx"
+    wb.save(target)
+    wb.save(day_folder / "Daily_Review_Summary.xlsx")
+
+
+def create_daily_dashboard_html(day_folder: Path, summaries: List[Dict[str, Any]]) -> Path:
+    counts: Dict[str, int] = {}
+    for row in summaries:
+        counts[row["status"]] = counts.get(row["status"], 0) + 1
+    cards = "".join(
+        f'<div class="card {status_class(status)}"><strong>{h(status)}</strong><span>{counts.get(status, 0)}</span></div>'
+        for status in ["Mismatch", "Incomplete", "Needs review", "Mostly matched", "Passed"]
+    )
+    priority = {"Mismatch": 1, "Incomplete": 2, "Needs review": 3, "Mostly matched": 4, "Passed": 5}
+    rows = []
+    for s in sorted(summaries, key=lambda x: (priority.get(x["status"], 9), x["sender"], x["case"])):
+        review = Path(s["path"]) / "00_OPEN_CASE_REVIEW.html"
+        review_link = rel_link(day_folder, review) if review.exists() else s["path"]
+        rows.append(
+            "<tr>"
+            f'<td><span class="pill {status_class(s["status"])}">{h(s["status"])}</span></td>'
+            f"<td>{h(s.get('issue_count', 0))}</td>"
+            f"<td>{h(s.get('sender', ''))}</td>"
+            f"<td>{h(s.get('case', ''))}</td>"
+            f"<td>{h(s.get('main_issue', ''))}</td>"
+            f'<td><a href="{h(review_link)}">Open review</a></td>'
+            "</tr>"
+        )
+    doc = f"""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Daily Review Dashboard</title>
+<style>
+body {{ font-family: Segoe UI, Arial, sans-serif; margin:24px; color:#1f2933; }}
+.cards {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin:16px 0; }}
+.card {{ padding:14px; border-radius:8px; border:1px solid #d0d7de; }}
+.card span {{ display:block; font-size:28px; margin-top:6px; }}
+.pill {{ display:inline-block; padding:5px 8px; border-radius:999px; font-weight:700; }}
+.passed {{ background:#c6efce; }} .mostly {{ background:#d9ead3; }}
+.review {{ background:#fff2cc; }} .incomplete {{ background:#d9d9d9; }} .mismatch {{ background:#f4cccc; }}
+table {{ border-collapse:collapse; width:100%; }}
+th,td {{ border:1px solid #d0d7de; padding:8px; vertical-align:top; font-size:14px; }}
+th {{ background:#1f4e78; color:white; text-align:left; position:sticky; top:0; }}
+a {{ color:#0969da; }}
+</style>
+</head>
+<body>
+<h1>Daily Review Dashboard</h1>
+<p>Folder: {h(day_folder)}</p>
+<p><a href="00_DAILY_SUMMARY.xlsx">Open 00_DAILY_SUMMARY.xlsx</a></p>
+<div class="cards">{cards}</div>
+<table>
+<thead><tr><th>Status</th><th>Issues</th><th>Sender</th><th>Case</th><th>Main Issue</th><th>Review</th></tr></thead>
+<tbody>{''.join(rows)}</tbody>
+</table>
+</body>
+</html>
+"""
+    target = day_folder / "00_OPEN_DAILY_DASHBOARD.html"
+    target.write_text(doc, encoding="utf-8")
+    return target
 
 
 def process_day(day_folder: Path, config: Dict[str, Any]) -> List[Dict[str, Any]]:

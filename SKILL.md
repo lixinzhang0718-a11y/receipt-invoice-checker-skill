@@ -14,7 +14,7 @@ Protect evidence integrity:
 - Never modify original Gmail attachments.
 - Save raw files under `original/`.
 - Save marked-up copies under `annotated/`.
-- Save extracted text, OCR output, reconciliation tables, and summaries as separate result files.
+- Save extracted text, OCR output, reconciliation tables, HTML dashboards, and Excel summaries as separate result files.
 - If OCR, Gmail access, or dependencies are not configured, stop with a clear setup note instead of guessing.
 
 ## Standard Workflow
@@ -32,11 +32,12 @@ python "%USERPROFILE%\.codex\skills\receipt-invoice-checker\scripts\daily_receip
 ```text
 Receipt_Check/
   YYYY-MM-DD/
-    Daily_Review_Summary.md
-    Daily_Review_Summary.csv
-    Daily_Review_Summary.xlsx
+    00_OPEN_DAILY_DASHBOARD.html
+    00_DAILY_SUMMARY.xlsx
     sender@example.com/
-      TKE1262583_Rogers/
+      0607_TKE1262583/
+        00_OPEN_CASE_REVIEW.html
+        01_CASE_SUMMARY.xlsx
         original/
         annotated/
         case_result.md
@@ -71,12 +72,15 @@ Then filter locally by attachment type and text evidence.
 
 ## Classification Rules
 
-Create one sender folder per sender email address. Create one case folder per likely tour/reference. Determine the case name from this priority order:
+Create one sender folder per sender email address. Create one case folder per likely attachment group. If one Gmail message contains several cases, group attachments by filename date token first. For example, all attachments containing `0607` belong together, and all attachments containing `0608` belong together.
 
-1. Tour reference such as `TKE1262583`.
-2. Guest name or clear subject token.
-3. Message received time plus short subject.
-4. Gmail message id if no other stable name exists.
+Determine the case name from this priority order:
+
+1. Attachment filename date token such as `0607` or `20260607`, normalized to `0607`.
+2. Tour reference such as `TKE1262583`.
+3. Guest name or clear subject token.
+4. Message received time plus short subject.
+5. Gmail message id if no other stable name exists.
 
 Use only filesystem-safe names. Keep a copy of the original subject, sender, received time, and Gmail message id inside `email_info.json`.
 
@@ -109,6 +113,19 @@ Annotate copies only:
 - For PDFs, extract text and save findings; only create annotated PDF copies when a PDF annotation library is available and reliable.
 
 If annotation is not possible, still create `case_result.md`, `case_result.csv`, and `extracted_data.json`.
+
+## Review Output Rules
+
+Make `00_OPEN_DAILY_DASHBOARD.html` the main daily entry point. It must summarize all cases with status counts, issue counts, sender, case name, main issue, and links to each case review.
+
+Make `00_OPEN_CASE_REVIEW.html` the main case entry point. It must show the case status, main issue, line-check table, annotated evidence images, and original attachment links.
+
+Make Excel outputs usable for daily work:
+
+- `00_DAILY_SUMMARY.xlsx`: colored daily dashboard with filter, frozen header, priority column, main issue, and hyperlinks to case review pages.
+- `01_CASE_SUMMARY.xlsx`: per-case workbook with `Summary`, `Line_Check`, and `Evidence` sheets.
+
+Keep `.md` and `.csv` only as backup outputs, not as the primary review format.
 
 ## Manual Review Expectations
 
