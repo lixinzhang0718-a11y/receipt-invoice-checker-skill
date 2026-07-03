@@ -90,11 +90,12 @@ def gmail_date(day: dt.date) -> str:
 
 def load_config() -> Dict[str, Any]:
     if CONFIG_PATH.exists():
-        return json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+        return json.loads(CONFIG_PATH.read_text(encoding="utf-8-sig"))
     return {
         "output_root": str(DEFAULT_OUTPUT_ROOT),
         "gmail_credentials": str(CONFIG_DIR / "gmail_credentials.json"),
         "gmail_token": str(CONFIG_DIR / "gmail_token.json"),
+        "tesseract_cmd": "C:\\Program Files\\Tesseract-OCR\\tesseract.exe",
         "ocr_languages": "jpn+eng",
         "gmail_extra_query": "",
         "known_sender_query": "",
@@ -440,6 +441,11 @@ def ocr_image(path: Path, annotated_dir: Path, languages: str, issue_banner: str
         import pytesseract
     except Exception:
         return "", [], "OCR not configured: install pillow, pytesseract, and Tesseract OCR."
+
+    config = load_config()
+    tesseract_cmd = config.get("tesseract_cmd")
+    if tesseract_cmd and Path(tesseract_cmd).exists():
+        pytesseract.pytesseract.tesseract_cmd = tesseract_cmd
 
     image = Image.open(path)
     try:
