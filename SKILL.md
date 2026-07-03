@@ -124,7 +124,7 @@ Attachments for manual check:
 | Total amount | Based on Excel calculation: JPY 30,000 + JPY 8,250 + JPY 5,520 + JPY 5,450 | JPY 49,220 | Calculation is correct |
 
 Short explanation:
-[2-4 Chinese sentences explaining the main matched evidence, missing evidence, calculation result, and any description conflict.]
+[2-4 English sentences explaining the main matched evidence, missing evidence, calculation result, and any description conflict.]
 
 Suggested reply:
 [short English follow-up if needed]
@@ -137,7 +137,7 @@ Table requirements:
 - Use `Matched`, `Needs confirmation`, `Mismatch`, `Calculation is correct`, or `Calculation mismatch` in the `Result` column.
 - Put combination evidence directly in `Amount shown in photos`, for example `JPY 1,000 + JPY 1,000 = JPY 2,000`.
 - If the receipt is missing, write a short reason in `Amount shown in photos`, not only `N/A`.
-- Keep table wording in English. Write the short explanation in Chinese unless the user asks for English.
+- Keep table wording and the short explanation in English unless the user explicitly asks for another language.
 
 Attachment display requirements:
 

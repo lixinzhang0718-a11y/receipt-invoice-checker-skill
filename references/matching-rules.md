@@ -89,7 +89,7 @@ Before each table, list the exact case attachments:
 - If there are many images, embed only the key images and link the rest.
 - Never mix attachments from different case folders.
 
-After each table, write a short Chinese explanation:
+After each table, write a short English explanation:
 
 - Main matched evidence
 - Missing or unclear receipt evidence
