@@ -81,16 +81,9 @@ def init_config() -> None:
     print(config["gmail_credentials"])
 
 
-def build_query(day: dt.date, config: Dict[str, Any], broad: bool = False) -> str:
+def build_query(day: dt.date, config: Dict[str, Any]) -> str:
     next_day = day + dt.timedelta(days=1)
-    if broad:
-        base = f"after:{gmail_date(day)} before:{gmail_date(next_day)} has:attachment"
-    else:
-        base = (
-            f"after:{gmail_date(day)} before:{gmail_date(next_day)} has:attachment "
-            '(receipt OR invoice OR "tour ref" OR TKE OR filename:xlsx OR filename:xls '
-            "OR filename:xlsm OR filename:pdf OR filename:jpg OR filename:jpeg OR filename:png)"
-        )
+    base = f"after:{gmail_date(day)} before:{gmail_date(next_day)} has:attachment"
     known_sender = (config.get("known_sender_query") or "").strip()
     extra = (config.get("gmail_extra_query") or "").strip()
     return " ".join(p for p in [known_sender, base, extra] if p)
@@ -246,10 +239,6 @@ def download_gmail(day: dt.date, out_root: Path, config: Dict[str, Any]) -> Path
     query = build_query(day, config)
     print(f"Gmail query: {query}")
     message_ids = list_message_ids(service, query)
-    if not message_ids:
-        query = build_query(day, config, broad=True)
-        print(f"No narrow-query messages found. Retrying: {query}")
-        message_ids = list_message_ids(service, query)
 
     downloaded = 0
     for msg_id in message_ids:
@@ -266,20 +255,26 @@ def download_gmail(day: dt.date, out_root: Path, config: Dict[str, Any]) -> Path
         attachment_index = 0
         for part in walk_parts(payload):
             filename = part.get("filename") or ""
-            attachment_id = part.get("body", {}).get("attachmentId")
-            if not filename or not attachment_id:
+            body = part.get("body", {})
+            if not filename:
                 continue
             if Path(filename).suffix.lower() not in SUPPORTED_EXTS:
                 continue
 
-            attachment = (
-                service.users()
-                .messages()
-                .attachments()
-                .get(userId="me", messageId=msg_id, id=attachment_id)
-                .execute()
-            )
-            data = base64.urlsafe_b64decode(attachment["data"].encode("ascii"))
+            if body.get("attachmentId"):
+                attachment = (
+                    service.users()
+                    .messages()
+                    .attachments()
+                    .get(userId="me", messageId=msg_id, id=body["attachmentId"])
+                    .execute()
+                )
+                encoded_data = attachment.get("data")
+            else:
+                encoded_data = body.get("data")
+            if not encoded_data:
+                continue
+            data = base64.urlsafe_b64decode(encoded_data.encode("ascii"))
             date_token = extract_date_token(filename, day) or "undated"
             case_label = case_label_for_group(date_token, tour_ref, subject, msg_id)
             original = day_folder / sender_folder_name / case_label / "original"
@@ -378,13 +373,12 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     day = parse_day(args.date)
     config = load_config()
-    if args.keep_output or args.output_root:
-        out_root = Path(args.output_root or config.get("output_root") or DEFAULT_OUTPUT_ROOT).expanduser()
-    else:
-        out_root = Path(tempfile.mkdtemp(prefix=f"receipt_review_{day.isoformat()}_"))
-
     try:
         if args.gmail:
+            if args.keep_output or args.output_root:
+                out_root = Path(args.output_root or config.get("output_root") or DEFAULT_OUTPUT_ROOT).expanduser()
+            else:
+                out_root = Path(tempfile.mkdtemp(prefix=f"receipt_review_{day.isoformat()}_"))
             day_folder = download_gmail(day, out_root, config)
         elif args.local_input:
             day_folder = Path(args.local_input).expanduser()

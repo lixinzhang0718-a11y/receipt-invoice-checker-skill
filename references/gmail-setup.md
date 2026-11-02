@@ -6,11 +6,11 @@ Use this reference only when the Gmail workflow cannot run because credentials, 
 
 Install these packages in the Python environment used by Codex:
 
-```bash
-pip install google-api-python-client google-auth-httplib2 google-auth-oauthlib openpyxl pillow pytesseract pymupdf
+```powershell
+python -m pip install -r "$env:USERPROFILE\.codex\skills\receipt-invoice-checker\requirements.txt"
 ```
 
-`pytesseract` also requires the Tesseract OCR program installed on Windows. For Japanese receipts, install the Japanese language data and use `jpn+eng` when possible.
+The downloader needs only the Gmail packages in `requirements.txt`. To inspect spreadsheets, PDFs, or images locally, install suitable readers such as `openpyxl`, `pymupdf`, and `pillow` in the environment performing the review. OCR is optional; `pytesseract` requires the Tesseract program and Japanese language data for `jpn+eng`.
 
 ## Gmail OAuth Files
 
@@ -46,5 +46,5 @@ The workflow downloads attachments and metadata only. It should not send, delete
 
 - Missing `gmail_credentials.json`: create/download OAuth desktop credentials.
 - Browser consent fails: rerun the command and complete the URL shown by Google.
-- No messages found: broaden the query to `after:YYYY/MM/DD before:YYYY/MM/DD has:attachment`.
-- OCR weak or missing: install Tesseract and Japanese language data, then rerun local processing.
+- No messages found: verify the selected date, Gmail account, and any filters in `config.json`.
+- Receipt text is hard to read: inspect the original image; OCR tools are optional aids to the manual review.
