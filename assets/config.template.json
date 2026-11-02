@@ -1,10 +1,7 @@
 {
-  "output_root": "C:\\Users\\Administrator\\Desktop\\Receipt_Check",
-  "gmail_credentials": "C:\\Users\\Administrator\\.codex\\receipt-invoice-checker\\gmail_credentials.json",
-  "gmail_token": "C:\\Users\\Administrator\\.codex\\receipt-invoice-checker\\gmail_token.json",
-  "tesseract_cmd": "C:\\Program Files\\Tesseract-OCR\\tesseract.exe",
-  "ocr_languages": "jpn+eng",
+  "output_root": "~/Desktop/Receipt_Check",
+  "gmail_credentials": "~/.codex/receipt-invoice-checker/gmail_credentials.json",
+  "gmail_token": "~/.codex/receipt-invoice-checker/gmail_token.json",
   "gmail_extra_query": "",
-  "known_sender_query": "",
-  "manual_send_only": true
+  "known_sender_query": ""
 }

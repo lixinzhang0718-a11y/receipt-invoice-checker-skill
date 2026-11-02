@@ -57,19 +57,13 @@ If Gmail access or dependencies fail, read `references/gmail-setup.md`.
 
 ## Gmail Search Rules
 
-For a selected date, search Gmail with a date-bounded attachment query similar to:
+For a selected date, search Gmail for all messages with attachments in the date range:
 
 ```text
-after:YYYY/MM/DD before:YYYY/MM/DD has:attachment (receipt OR invoice OR "tour ref" OR TKE OR filename:xlsx OR filename:xls OR filename:pdf OR filename:jpg OR filename:jpeg OR filename:png)
+after:YYYY/MM/DD before:NEXT_DAY has:attachment
 ```
 
-If too few messages are found, broaden to:
-
-```text
-after:YYYY/MM/DD before:YYYY/MM/DD has:attachment
-```
-
-Then filter locally by attachment types and visible case relevance.
+Filter locally by supported attachment types and inspect case relevance. Set `known_sender_query` or `gmail_extra_query` in the config to limit a busy inbox.
 
 ## Grouping Rules
 
